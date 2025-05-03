@@ -9,14 +9,11 @@ from io import BytesIO
 from math import sqrt, ceil, log2
 from random import uniform, choices
 from glob import glob
+import wave
 
-# from waveFunction import WaveFunction
-# from tile import Tile
-# from block import Block
-# from button import Button
-# from toggle import Toggle
-# from IRenderable import IRenderable
 
+PATH = 'music_synthesis/audio/*.wav'
+SAMPLE_RATE = 22050
 
 SCREEN_WIDTH = 1500
 SCREEN_HEIGHT = 800
@@ -30,21 +27,13 @@ MAX_FIELD_WIDTH = SCREEN_WIDTH - LEFT_MARGIN - RIGHT_MARGIN
 MAX_FIELD_HEIGHT = 500
 
 OUTPUT_LENGTH = 15
-TILES_COUNT = 13
-    
+TILES_COUNT = 12
+
 TILE_GAP = 1
 BLOCK_GAP = min(max(70 // OUTPUT_LENGTH, 1), 10)
 
 BLOCK_WIDTH = MAX_FIELD_WIDTH // OUTPUT_LENGTH
 FIELD_WIDTH = BLOCK_WIDTH * OUTPUT_LENGTH
-
-# ROW_WIDTH = BLOCK_WIDTH - 4
-# TILE_COLUMNS_COUNT = 1
-# while MAX_FIELD_HEIGHT // (ROW_WIDTH + TILE_GAP) > TILES_COUNT:
-#     TILE_COLUMNS_COUNT += 1
-
-
-
 
 TILES_COUNT_IN_ROW = ceil(sqrt(TILES_COUNT))
 
@@ -66,6 +55,7 @@ DARK_GREY = 64, 64, 64
 DARK_BLUE = 48, 32, 128
 DARK_RED = 128, 0, 0
 DARK_GREEN = 0, 128, 0
+BUTTON_COLORS = ((200, 200, 200), (170, 170, 170), (150, 150, 150))
 
 pygame.font.init()
 FONT = pygame.font.SysFont(None, 30)
@@ -76,47 +66,134 @@ BUTTON_HEIGHT = 40
 COLLAPSE_BUTTON_POS = ((SCREEN_WIDTH-BUTTON_WIDTH) // 2 - BUTTON_WIDTH - 15, SCREEN_HEIGHT-BUTTON_HEIGHT-25)
 RENOVATE_BUTTON_POS = ((SCREEN_WIDTH-BUTTON_WIDTH) // 2, SCREEN_HEIGHT-BUTTON_HEIGHT-25)
 SAVE_BUTTON_POS = ((SCREEN_WIDTH-BUTTON_WIDTH) // 2 + BUTTON_WIDTH + 15, SCREEN_HEIGHT-BUTTON_HEIGHT-25)
+MODE_BUTTON_POS = ((SCREEN_WIDTH-BUTTON_WIDTH) // 2 + 2 * BUTTON_WIDTH + 50, SCREEN_HEIGHT-BUTTON_HEIGHT-25)
 
 LEFT = 1
 
 FPS = 60
 
-
-
 FRAME_SIZE = 2048
 HOP_SIZE = 512
+FILTERS_COUNT = 100
 
 
-class IRenderable(ABC):
+class InterfaceRender(ABC):
     @abstractmethod
     def render(self, screen, *args, **kwargs):
         pass
 
 
-class IClickable(ABC):
+class InterfaceClick(ABC):
     @abstractmethod
     def check_click(self):
         pass
 
 
-class Tilesheet:
+class Playlist:
     def __init__(self, path):
         try:
             self.__audio_files = glob(path)
-            # [print(file) for file in self.__audio_files]
-            # map(print, self.__audio_files)
         except:
             raise SystemExit(f'Path {path} is not valid')
 
         self.__audio_files_data = list(map(librosa.load, self.__audio_files))
-        self.__tile_images = [self.__plot(y) for y, _ in self.__audio_files_data]
+        self.__fts = []
+        self.__magnitudes = []
+        self.__stfts = []
+        self.__spectrograms = []
+        self.__mel_spectrograms = []
+        self.__wave_imgs = []
+        self.__freq_imgs = []
+        self.__spectrogram_imgs = []
+        self.__mel_imgs = []
+        for y, sr in self.audio_files_data:
+            # print(sr)
+            ft = np.fft.fft(y)
+            magnitude = np.abs(ft)[:len(y) // 2 + 1]
+            stft = librosa.stft(y, n_fft=FRAME_SIZE, hop_length=HOP_SIZE)
+            spectrogram = librosa.power_to_db(np.abs(stft) ** 2)
+            mel_spectrogram = librosa.power_to_db(librosa.feature.melspectrogram(y=y, sr=sr, n_fft=FRAME_SIZE, hop_length=HOP_SIZE, n_mels=FILTERS_COUNT))
+            
+            self.__fts.append(ft)
+            self.__magnitudes.append(magnitude)
+            self.__stfts.append(librosa.stft(y, n_fft=FRAME_SIZE, hop_length=HOP_SIZE))
+            self.__spectrograms.append(spectrogram)
+            self.__mel_spectrograms.append(mel_spectrogram)
+            
+            self.__wave_imgs.append(self.__plot_wave_img(y))
+            self.__freq_imgs.append(self.__plot_freq_img(magnitude))
+            self.__spectrogram_imgs.append(self.__plot_spectrogram_img(spectrogram, sr))
+            self.__mel_imgs.append(self.__plot_mel_img(mel_spectrogram, sr))
 
-    def __plot(self, y):
+    def __plot_wave_img(self, samples):
         fig, ax = plt.subplots(figsize=(3, 2), dpi=100)
         plt.subplots_adjust(left=0, right=1, bottom=0, top=1)
 
-        librosa.display.waveshow(y, alpha=0.5)
+        librosa.display.waveshow(samples, alpha=0.5)
         # ax.plot(y[2000:5000])
+        ax.axis('off')
+
+        buf = BytesIO()
+        fig.savefig(buf, format='raw', dpi=100)
+        buf.seek(0)
+
+        image = pygame.image.fromstring(buf.getvalue(), fig.canvas.get_width_height(), 'RGBA')
+
+        buf.close()
+        plt.close(fig)
+
+        return image
+    
+    def __plot_freq_img(self, magnitude):
+        fig, ax = plt.subplots(figsize=(3, 2), dpi=100)
+        plt.subplots_adjust(left=0, right=1, bottom=0, top=1)
+
+        plt.plot(magnitude, linewidth=2.5)
+        ax.axis('off')
+
+        buf = BytesIO()
+        fig.savefig(buf, format='raw', dpi=100)
+        buf.seek(0)
+
+        image = pygame.image.fromstring(buf.getvalue(), fig.canvas.get_width_height(), 'RGBA')
+
+        buf.close()
+        plt.close(fig)
+
+        return image
+    
+    def __plot_spectrogram_img(self, spectrogram, sr, hop_length=HOP_SIZE):
+        fig, ax = plt.subplots(figsize=(3, 2), dpi=100)
+        plt.subplots_adjust(left=0, right=1, bottom=0, top=1)
+
+        librosa.display.specshow(spectrogram,
+                                 sr=sr,
+                                 hop_length=hop_length,
+                                 x_axis='time',
+                                 y_axis='log')
+        ax.axis('off')
+
+        buf = BytesIO()
+        fig.savefig(buf, format='raw', dpi=100)
+        buf.seek(0)
+
+        image = pygame.image.fromstring(buf.getvalue(), fig.canvas.get_width_height(), 'RGBA')
+
+        buf.close()
+        plt.close(fig)
+
+        return image
+    
+    def __plot_mel_img(self, mel_spectrogram, sr, hop_length=HOP_SIZE):
+        fig, ax = plt.subplots(figsize=(3, 2), dpi=100)
+        plt.subplots_adjust(left=0, right=1, bottom=0, top=1)
+
+        librosa.display.specshow(mel_spectrogram,
+                                 sr=sr,
+                                 hop_length=hop_length,
+                                 x_axis='time',
+                                 y_axis='mel')
+
         ax.axis('off')
 
         buf = BytesIO()
@@ -137,58 +214,106 @@ class Tilesheet:
     @property
     def audio_files_data(self):
         return self.__audio_files_data
+    
+    @property
+    def fts(self):
+        return self.__fts
+    
+    @property
+    def magnitudes(self):
+        return self.__magnitudes
+    
+    @property
+    def stfts(self):
+        return self.__stfts
+    
+    @property
+    def spectrograms(self):
+        return self.__spectrograms
+    
+    @property
+    def mel_spectrograms(self):
+        return self.__mel_spectrograms
 
     @property
-    def tile_images(self):
-        return self.__tile_images
-
+    def wave_imgs(self):
+        return self.__wave_imgs
+    
     @property
-    def tile_sounds(self):
-        return self.__tile_sounds
+    def freq_imgs(self):
+        return self.__freq_imgs
+    
+    @property
+    def spectrogram_imgs(self):
+        return self.__spectrogram_imgs
+    
+    @property
+    def mel_imgs(self):
+        return self.__mel_imgs
     
 
-class Tile(IRenderable):
+class SoundTile(InterfaceRender):
     COUNT = 0
 
-    def __init__(self, filepath, samples, sr, image, size=(100, 100)):
+    def __init__(self, filepath, samples, sr, fourier_transform, magnitude, stft, spectrogram, mel_spectrogram, wave_img, freq_img, spectrogram_img, mel_img, size=(100, 100)):
         self.__samples = samples
         self.__sample_rate = sr
 
-        self.__ft = np.fft.fft(samples)
-        self.__magnitude = np.abs(self.__ft)
-        self.__stft = librosa.stft(samples, n_fft=FRAME_SIZE, hop_length=HOP_SIZE)
-        Y = np.abs(self.__stft) ** 2
+        self.__ft = fourier_transform
+        self.__magnitude = magnitude
+        self.__stft = stft
+        self.__spectrogram = spectrogram
+        self.__mel_spectrogram = mel_spectrogram
     
-        self.__image = image
+        self.__wave_img = wave_img
+        self.__freq_img = freq_img
+        self.__spectrogram_img = spectrogram_img
+        self.__mel_img = mel_img
+        
         self.__sound = pygame.mixer.Sound(filepath)
 
-        self.__idx = Tile.COUNT % TILES_COUNT
-        Tile.COUNT += 1
+        self.__idx = SoundTile.COUNT % TILES_COUNT
+        SoundTile.COUNT += 1
+
+    def dominant_frequency(self):
+        idx = np.argmax(self.__magnitude)
+        frequencies = np.arange(len(self.__samples) // 2 + 1) * self.__sample_rate / len(self.__samples)
+        
+        return frequencies[idx]
     
     # render includes sound playing? it's weird, but it works well
     def render(self, screen, *args, **kwargs):
-        x, y, size = args
+        x, y, size, mode = args
 
-        image = pygame.transform.scale(self.__image, size)
+        if   mode == 0:  # waveform
+            image = pygame.transform.scale(self.__wave_img, size)
+        elif mode == 1:  # frequency
+            image = pygame.transform.scale(self.__freq_img, size)
+        elif mode == 2:  # spectrogram
+            image = pygame.transform.scale(self.__spectrogram_img, size)
+        elif mode == 3:  # mel_spectrogram
+            image = pygame.transform.scale(self.__mel_img, size)
 
         rect = image.get_rect(x=x, y=y)
         mouse_pos = pygame.mouse.get_pos()
 
         if rect.collidepoint(mouse_pos):
             self.__sound.play()
+            print(self.dominant_frequency())
             
             if not kwargs['is_single']:
                 surf = pygame.Surface(size, pygame.SRCALPHA)
                 surf.fill((0, 0, 0, 128))
                 
                 image.blit(surf, (0, 0))
+        
         else:
             self.__sound.stop()
         
         screen.blit(image, (x, y))
 
     def __eq__(self, val):
-        if isinstance(val, Tile):
+        if isinstance(val, SoundTile):
             return self.idx == val.idx
         elif isinstance(val, int):
             return self.idx == val
@@ -210,7 +335,7 @@ class Tile(IRenderable):
         return self.__idx
     
 
-class Block(IRenderable):
+class SoundBlock(InterfaceRender):
     def __init__(self, tileset, x, y):
         self.__tiles = tileset
         
@@ -223,7 +348,7 @@ class Block(IRenderable):
     
     @tiles.setter
     def tiles(self, val):
-        if isinstance(val, Tile):
+        if isinstance(val, SoundTile):
             self.__tiles = [val]
         elif isinstance(val, list):
             self.__tiles = val
@@ -236,14 +361,14 @@ class Block(IRenderable):
     def y(self):
         return self.__y
 
-    def render(self, screen):
+    def render(self, screen, mode):
         if len(self.__tiles) == 1:
             x = self.__x
             y = SCREEN_HEIGHT - BLOCK_HEIGHT - 200
             size = BLOCK_WIDTH, BLOCK_HEIGHT
 
             tile = self.__tiles[0]
-            tile.render(screen, x, y, size, is_single=True)
+            tile.render(screen, x, y, size, mode, is_single=True)
         
         else:
             for tile in self.__tiles:
@@ -251,7 +376,7 @@ class Block(IRenderable):
                 y = self.__y + tile.idx // TILES_COUNT_IN_ROW * (TILE_HEIGHT + TILE_GAP)
                 size = TILE_WIDTH, TILE_HEIGHT
 
-                tile.render(screen, x, y, size, is_single=False)
+                tile.render(screen, x, y, size, mode, is_single=False)
 
     def remove(self, tile):
         self.__tiles.remove(tile)
@@ -268,7 +393,7 @@ class Block(IRenderable):
         return len(self.__tiles)
     
     def __contains__(self, key):
-        if isinstance(key, Tile):
+        if isinstance(key, SoundTile):
             return key in self.__tiles
         elif isinstance(key, int):
             return key in map(lambda tile: tile.idx, self.__tiles)
@@ -280,10 +405,11 @@ class Block(IRenderable):
         return iter(self.__tiles)
 
     def __repr__(self):
+        return f'SoundBlock{self.__tiles}'
         return str(self.__tiles)
 
 
-class Index:
+class Rules:
     def __init__(self, tileset):
         self.__rules = {}
         for tile in tileset:
@@ -296,18 +422,32 @@ class Index:
                     if self.__is_similar(tile, neighbor, direction):
                         self.__rules[tile.idx][direction].append(neighbor.idx)
     
+# ---- HERE ----
+    # ---- HERE ----
+    # ---- HERE ----
+    # ---- HERE ----
+    # ---- HERE ----
+    # ---- HERE ----
+# ---- HERE ----
+
+# START AND FINISH WITH THE SAME NOTE (TONIC) 
+
     def __is_similar(self, tile, neighbor, direction, k=0.8):
-        return False
-    
+        # a = min([2**(i/12) / (tile.dominant_frequency() / neighbor.dominant_frequency()) for i in [-12, -9, -8, -7, -5, -4, -3, 0, 3, 4, 5, 7, 8, 9, 12]]) <= 2 ** (1/24)
+        
+        n = 12 * log2(tile.dominant_frequency() / neighbor.dominant_frequency())
+        for step in [-12, -9, -8, -7, -5, -4, -3, 0, 3, 4, 5, 7, 8, 9, 12]:
+            if abs(n - step) <= 0.25:
+                return True
+
     def is_possible_neighbor(self, tile, neighbor, direction):
         return neighbor.idx in self.__rules[tile.idx][direction]
 
 
-class Button(IRenderable, IClickable):
-    def __init__(self, x, y, width, height, text, func, font, colors):
-        self.rect = pygame.Rect(x, y, width, height)
+class Button(InterfaceRender, InterfaceClick):
+    def __init__(self, text, pos, width=BUTTON_WIDTH, height=BUTTON_HEIGHT, colors=BUTTON_COLORS, font=FONT):
+        self.rect = pygame.Rect(*pos, width, height)
         self.text = text
-        self.func = func
         self.font = font
         self.colors = colors
         self.current_color = colors[0]
@@ -320,172 +460,120 @@ class Button(IRenderable, IClickable):
         text_rect = text_surface.get_rect(center=self.rect.center)
         screen.blit(text_surface, text_rect)
 
-    def update(self, event):
-        mouse_pos = pygame.mouse.get_pos()
-
-        # Check for hover
-        if self.rect.collidepoint(mouse_pos):
-            self.current_color = self.colors[1]  # Hover color
-
-            # Check for click
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                self.current_color = self.colors[2]  # Clicked color
-                self.clicked = True
-
-            elif event.type == pygame.MOUSEBUTTONUP and self.clicked:
-                self.clicked = False
-                self.func()  # Call the button's function
-        else:
-            self.current_color = self.colors[0]  # Normal color
-
-# Dummy functions for buttons
-def play_sound():
-    print("Play sound button clicked!")
-
-def merge_audio():
-    print("Merge audio button clicked!")
-
-button_colors = ((200, 200, 200), (170, 170, 170), (150, 150, 150))  # Normal, Hover, Clicked
-
-
-class Button(IRenderable, IClickable):
-    def __init__(self, text, pos):
-        self.__is_pressed = False
-
-        elevation = int(0.14 * BUTTON_HEIGHT)
-        self.__elevation = elevation
-        self.__dynamic_elevation = elevation
-        self.__y = pos[1]
-
-        self.__bottom_rect = pygame.Rect(pos, (BUTTON_WIDTH, BUTTON_HEIGHT + elevation))
-        self.__bottom_color = BLACK
-
-        self.__top_rect = pygame.Rect(pos, (BUTTON_WIDTH, BUTTON_HEIGHT))
-        self.__top_color = DARK_BLUE
-
-        self.__text_surf = FONT.render(text, True, WHITE)
-        self.__text_rect = self.__text_surf.get_rect(center=self.__top_rect.center)
-
     def check_click(self):
         mouse_pos = pygame.mouse.get_pos()
 
-        if self.__top_rect.collidepoint(mouse_pos):
-            self.__top_color = DARK_RED
-            
-            if pygame.mouse.get_pressed()[0]:
-                self.__is_pressed = True
-                self.__dynamic_elevation = 0
-            else:
-                if self.__is_pressed:
-                    self.__is_pressed = False
-                    self.__dynamic_elevation = self.__elevation
-                    
-                    return True
+        if self.rect.collidepoint(mouse_pos):
+            self.current_color = self.colors[1]  # Hover color
+
+            if pygame.mouse.get_pressed()[2]:
+                self.clicked = True
+                self.current_color = self.colors[2]  # Clicked color
+                return True
+            elif self.clicked:
+                self.clicked = False
         else:
-            self.__top_color = DARK_BLUE
-            self.__dynamic_elevation = self.__elevation
-
-    def render(self, screen, *args, **kwargs):
-        self.__top_rect.y = self.__y - self.__dynamic_elevation
-        self.__text_rect.center = self.__top_rect.center
-
-        self.__bottom_rect.y = self.__top_rect.y
-        self.__bottom_rect.height = self.__top_rect.height + self.__dynamic_elevation
-
-        pygame.draw.rect(screen, self.__bottom_color, self.__bottom_rect, border_radius=12)
-        pygame.draw.rect(screen, self.__top_color, self.__top_rect, border_radius=12)
-        screen.blit(self.__text_surf, self.__text_rect)
+            self.current_color = self.colors[0]  # Normal color
 
 
-class WaveFunction(IRenderable):
-    def __init__(self, tilesheet, length):
+class Wave(InterfaceRender):
+    def __init__(self, playlist, length):
         self.__length = length
         
         self.__coeffs = []
         for i in range(length):
             tileset = []
             for idx in range(TILES_COUNT):
-                filepath    = tilesheet.audio_files[idx]
-                samples, sr = tilesheet.audio_files_data[idx]
-                image       = tilesheet.tile_images[idx]
+                filepath = playlist.audio_files[idx]
+                samples, sr = playlist.audio_files_data[idx]
+                ft = playlist.fts[idx]
+                magnitude = playlist.magnitudes[idx]
+                stft = playlist.stfts[idx]
+                spectrogram = playlist.spectrograms[idx]
+                mel_spectrogram = playlist.mel_spectrograms[idx]
                 
-                tile = Tile(filepath, samples, sr, image)
+                wave_img = playlist.wave_imgs[idx]
+                freq_img = playlist.freq_imgs[idx]
+                spectrogram_img = playlist.spectrogram_imgs[idx]
+                mel_img = playlist.mel_imgs[idx]
+                
+                tile = SoundTile(filepath, samples, sr, ft, magnitude, stft, spectrogram, mel_spectrogram, wave_img, freq_img, spectrogram_img, mel_img)
                 tileset.append(tile)
 
             x = i * (BLOCK_WIDTH + BLOCK_GAP) + SIDE_PAD
             y = TOP_PAD
 
-            block = Block(tileset, x, y)
-            self.__coeffs.append(block)
+            soundblock = SoundBlock(tileset, x, y)
+            self.__coeffs.append(soundblock)
 
-        self.__tileset = tileset
+        self.__tiles = tileset
         self.probabilities = {tile.idx: 1 / len(tileset) for tile in tileset}
-        self.index = Index(tileset)
+        self.rules = Rules(tileset)
         
         self.__stack = []
 
-    def __entropy(self, block_idx):
-        block = self.__coeffs[block_idx]
-        if len(block) == 1:
+    def __entropy(self, soundblock_idx):
+        soundblock = self.__coeffs[soundblock_idx]
+        if len(soundblock) == 1:
             return 0
         
-        return -sum([self.probabilities[tile.idx] * log2(self.probabilities[tile.idx]) for tile in block]) - uniform(0, 0.1)
+        return -sum([self.probabilities[tile.idx] * log2(self.probabilities[tile.idx]) for tile in soundblock]) - uniform(0, 0.1)
 
     def __min_entropy_idx(self):
         min_entropy = None
-        block_idx = None
+        soundblock_idx = None
 
         for i in range(self.__length):
             entropy = self.__entropy(i)
             if entropy != 0 and (min_entropy is None or min_entropy > entropy):
                 min_entropy = entropy
-                block_idx = i
+                soundblock_idx = i
         
-        return block_idx
+        return soundblock_idx
     
-    def __valid_directions(self, block_idx):
+    def __valid_directions(self, soundblock_idx):
         directions = []
 
-        if block_idx != 0:
+        if soundblock_idx != 0:
             directions.append(-1)
         
-        if block_idx != self.length - 1:
+        if soundblock_idx != self.length - 1:
             directions.append(1)
         
         return directions
 
-    def collapse_block(self, block_idx, tile_idx=None):
-        block = self.__coeffs[block_idx]
+    def collapse_soundblock(self, soundblock_idx, tile_idx=None):
+        soundblock = self.__coeffs[soundblock_idx]
         if tile_idx is not None:
-            block.tiles = block[tile_idx]
+            soundblock.tiles = soundblock[tile_idx]
         else:
-            block.tiles = choices(self.__tiles, [self.probabilities[tile.idx] for tile in block])
+            soundblock.tiles = choices(soundblock.tiles, [self.probabilities[tile.idx] for tile in soundblock])
         
-        self.__stack.append(block_idx)
+        self.__stack.append(soundblock_idx)
 
     def observe(self):
-        block_idx = self.__min_entropy_idx()
-        if block_idx is None:
+        soundblock_idx = self.__min_entropy_idx()
+        if soundblock_idx is None:
             return
         
-        self.collapse_block(block_idx)
+        self.collapse_soundblock(soundblock_idx)
 
     def propagate(self):
         while len(self.__stack) != 0:
-            block_idx = self.__stack.pop()
-            block = self.__coeffs[block_idx]
+            soundblock_idx = self.__stack.pop()
+            soundblock = self.__coeffs[soundblock_idx]
 
-            for direction in self.__valid_directions(block_idx):
-                neighbor_idx = block_idx + direction
-                neighbor_block = self.__coeffs[neighbor_idx]
+            for direction in self.__valid_directions(soundblock_idx):
+                neighbor_idx = soundblock_idx + direction
+                neighbor_soundblock = self.__coeffs[neighbor_idx]
 
                 is_changed = False
-                for neighbor_tile in neighbor_block.tiles[:]:
-                    if len(neighbor_block) == 1:
+                for neighbor_tile in neighbor_soundblock.tiles[:]:
+                    if len(neighbor_soundblock) == 1:
                         break
 
-                    if not any([self.index.is_possible_neighbor(tile, neighbor_tile, direction) for tile in block]):
-                        neighbor_block.remove(neighbor_tile)
+                    if not any([self.rules.is_possible_neighbor(tile, neighbor_tile, direction) for tile in soundblock]):
+                        neighbor_soundblock.remove(neighbor_tile)
                         is_changed = True
 
                         yield
@@ -494,8 +582,8 @@ class WaveFunction(IRenderable):
                     self.__stack.append(neighbor_idx)
 
     def is_collapsed(self):
-        for block in self.__coeffs:
-            if len(block) > 1:
+        for soundblock in self.__coeffs:
+            if len(soundblock) > 1:
                 return False
         
         return True
@@ -515,28 +603,28 @@ class WaveFunction(IRenderable):
             self.observe()
             yield
     
-    def renovate(self, tilesheet):
+    def renovate(self, playlist):
         self.__coeffs = []
         for i in range(self.__length):
             tileset = []
             for idx in range(TILES_COUNT):
-                filepath    = tilesheet.audio_files[idx]
-                samples, sr = tilesheet.audio_files_data[idx]
-                image       = tilesheet.tile_images[idx]
+                filepath    = playlist.audio_files[idx]
+                samples, sr = playlist.audio_files_data[idx]
+                image       = playlist.tile_images[idx]
                 
-                tile = Tile(filepath, samples, sr, image)
+                tile = SoundTile(filepath, samples, sr, image)
                 tileset.append(tile)
 
             x = i * (BLOCK_WIDTH + BLOCK_GAP) + SIDE_PAD
             y = TOP_PAD
 
-            block = Block(tileset, x, y)
-            self.__coeffs.append(block)
+            soundblock = SoundBlock(tileset, x, y)
+            self.__coeffs.append(soundblock)
 
 
     def render(self, screen, *args, **kwargs):
-        for block in self.__coeffs:
-            block.render(screen)
+        for soundblock in self.__coeffs:
+            soundblock.render(screen, kwargs['mode'])
 
     @property
     def length(self):
@@ -547,91 +635,71 @@ class WaveFunction(IRenderable):
         return self.__coeffs
 
 
-class Visualizer:
+class MusicGenerator:
     def __init__(self):
         pygame.init()
         pygame.mixer.init()
 
+        self.__screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        pygame.display.set_caption('Music generator')
+
         self.__clock = pygame.time.Clock()
 
-        self.__tilesheet = Tilesheet('music_synthesis/audio/*.wav')
-        self.__wave_function = WaveFunction(self.__tilesheet, OUTPUT_LENGTH)
+        self.__playlist = Playlist(PATH)
+        self.__sample_rate = SAMPLE_RATE
+        self.__wave_function = Wave(self.__playlist, OUTPUT_LENGTH)
 
-        self.__screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption('WFC visualizer')
+        self.__mode = 0
 
         self.__collapse_button = Button('Collapse', COLLAPSE_BUTTON_POS)
         self.__renovate_button = Button('Renovate', RENOVATE_BUTTON_POS)
-        self.__save_button = Button('Save', SAVE_BUTTON_POS)
+        self.__save_button     = Button('Save', SAVE_BUTTON_POS)
+        self.__mode_button     = Button('Change mode', MODE_BUTTON_POS)
 
         self.__start = False
         self.__runner = True
 
-
-    # -----------------------------------
-
-    def get_block_idx(self, mouse_x, mouse_y):
-        block_idx = None 
-
-        if SIDE_PAD < mouse_x < SIDE_PAD + FIELD_WIDTH and TOP_PAD < mouse_y < TOP_PAD + FIELD_HEIGHT:
-            block_idx = (mouse_x - SIDE_PAD) // (BLOCK_WIDTH + BLOCK_GAP)
-            block = self.__wave_function.coeffs[block_idx]
-
-            if block.x < mouse_x < block.x + BLOCK_WIDTH and block.y < mouse_y < block.y + BLOCK_HEIGHT:
-                x = (mouse_x - SIDE_PAD) % (BLOCK_WIDTH + BLOCK_GAP) // (TILE_WIDTH + TILE_GAP)
-                y = (mouse_y - TOP_PAD) % (BLOCK_HEIGHT + BLOCK_GAP) // (TILE_HEIGHT + TILE_GAP)
-
-                tile_idx = y * TILES_COUNT_IN_ROW + x
-
-        return block_idx, tile_idx
-    
-    def get_tile_idx(self, mouse_x, mouse_y):
-        tile_idx = None
-
-        block_idx = self.get_block_idx(mouse_x, mouse_y)
-        if block_idx is not None:
-            block = self.__wave_function.coeffs[block_idx]
-            if block.x < mouse_x < block.x + BLOCK_WIDTH and block.y < mouse_y < block.y + BLOCK_HEIGHT:
-                x = (mouse_x - SIDE_PAD) % (BLOCK_WIDTH + BLOCK_GAP) // (TILE_WIDTH + TILE_GAP)
-                y = (mouse_y - TOP_PAD) % (BLOCK_HEIGHT + BLOCK_GAP) // (TILE_HEIGHT + TILE_GAP)
-
-                tile_idx = y * TILES_COUNT_IN_ROW + x
-        
-        return tile_idx
-    
-    # -----------------------------------
-    
-
-    def get_block_tile_idx(self, mouse_x, mouse_y):
-        block_idx = None
+    def get_soundblock_tile_idx(self, mouse_x, mouse_y):
+        soundblock_idx = None
         tile_idx = None 
 
         if SIDE_PAD < mouse_x < SIDE_PAD + FIELD_WIDTH and TOP_PAD < mouse_y < TOP_PAD + FIELD_HEIGHT:
-            block_idx = (mouse_x - SIDE_PAD) // (BLOCK_WIDTH + BLOCK_GAP)
-            block = self.__wave_function.coeffs[block_idx]
+            soundblock_idx = (mouse_x - SIDE_PAD) // (BLOCK_WIDTH + BLOCK_GAP)
+            soundblock = self.__wave_function.coeffs[soundblock_idx]
 
-            if block.x < mouse_x < block.x + BLOCK_WIDTH and block.y < mouse_y < block.y + BLOCK_HEIGHT:
+            if soundblock.x < mouse_x < soundblock.x + BLOCK_WIDTH and soundblock.y < mouse_y < soundblock.y + BLOCK_HEIGHT:
                 x = (mouse_x - SIDE_PAD) % (BLOCK_WIDTH + BLOCK_GAP) // (TILE_WIDTH + TILE_GAP)
                 y = (mouse_y - TOP_PAD) % (BLOCK_HEIGHT + BLOCK_GAP) // (TILE_HEIGHT + TILE_GAP)
 
                 tile_idx = y * TILES_COUNT_IN_ROW + x
 
-        return block_idx, tile_idx
+        return soundblock_idx, tile_idx
 
     def __check_clicked_tile(self):
         mouse_x, mouse_y = pygame.mouse.get_pos()
 
-        block_idx, tile_idx = self.get_block_tile_idx(mouse_x, mouse_y)
+        soundblock_idx, tile_idx = self.get_soundblock_tile_idx(mouse_x, mouse_y)
         if tile_idx is not None:
-            block = self.__wave_function.coeffs[block_idx]
+            soundblock = self.__wave_function.coeffs[soundblock_idx]
 
-            if len(block) != 1 and tile_idx in block:
-                self.__wave_function.collapse_block(block_idx, tile_idx)
+            if len(soundblock) != 1 and tile_idx in soundblock:
+                self.__wave_function.collapse_soundblock(soundblock_idx, tile_idx)
                 
                 return True
 
-    def save_audio(self):
-        pass
+    def __audio(self):
+        return np.concatenate([soundblock.tiles[0].samples for soundblock in self.__wave_function.coeffs])
+
+    def save_audio(self, filename):
+        audio = self.__audio()
+        print(type(audio[0]))
+
+        with wave.open(f'music_synthesis/results/{filename}.wav', mode='wb') as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(4)
+            wav_file.setframerate(self.__sample_rate)
+            wav_file.writeframes(bytes(audio))
+
 
     def __process_input(self):
         for event in pygame.event.get():
@@ -645,7 +713,7 @@ class Visualizer:
                         self.__start = True
                 
                 if event.key == pygame.K_r:
-                    self.__wave_function.renovate(self.__tilesheet)
+                    self.__wave_function.renovate(self.__playlist)
                     self.__start = False
 
                 elif event.key == pygame.K_n:
@@ -660,16 +728,24 @@ class Visualizer:
                     self.__start = True
 
             elif self.__collapse_button.check_click():
-                # self.start_time = time.time()
-                self.__wave_function.collapse()
+                self.start_time = time.time()
+                self.__collapse_gen = self.__wave_function.collapse()
                 self.__start = True
+                print('collapse btn')
 
             elif self.__renovate_button.check_click():
-                # self.__wave_function.renovate(self.__tilesheet)
+                # self.__wave_function.renovate(self.__playlist)
                 self.__start = False
+                print('renovate btn')
 
+            elif self.__mode_button.check_click():
+                self.__mode += 1
+                if self.__mode == 4:
+                    self.__mode = 0
+                print('mode btn')
             elif self.__wave_function.is_collapsed() and self.__save_button.check_click():
-                # self.save_image(input('filename: '))
+                self.save_audio(input('filename: '))
+                print('save btn')
                 pass
 
     def __update(self):
@@ -683,14 +759,12 @@ class Visualizer:
     def __render(self):
         self.__screen.fill((128, 128, 128))
 
-        self.__wave_function.render(self.__screen)
+        self.__wave_function.render(self.__screen, mode=self.__mode)
         
         self.__collapse_button.render(self.__screen)
         self.__renovate_button.render(self.__screen)
         self.__save_button.render(self.__screen)
-
-        # self.__propagation_toggle.render(self.__screen)
-        # self.__update_toggle.render(self.__screen)
+        self.__mode_button.render(self.__screen)
         
         pygame.display.flip()
 
@@ -703,4 +777,4 @@ class Visualizer:
         pygame.quit()
 
 
-Visualizer().run()
+MusicGenerator().run()
