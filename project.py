@@ -26,7 +26,7 @@ BOTTOM_MARGIN = TOP_MARGIN
 MAX_FIELD_WIDTH = SCREEN_WIDTH - LEFT_MARGIN - RIGHT_MARGIN
 MAX_FIELD_HEIGHT = 500
 
-OUTPUT_LENGTH = 15
+OUTPUT_LENGTH = 12
 TILES_COUNT = 12
 
 TILE_GAP = 1
@@ -66,7 +66,8 @@ BUTTON_HEIGHT = 40
 COLLAPSE_BUTTON_POS = ((SCREEN_WIDTH-BUTTON_WIDTH) // 2 - BUTTON_WIDTH - 15, SCREEN_HEIGHT-BUTTON_HEIGHT-25)
 RENOVATE_BUTTON_POS = ((SCREEN_WIDTH-BUTTON_WIDTH) // 2, SCREEN_HEIGHT-BUTTON_HEIGHT-25)
 SAVE_BUTTON_POS = ((SCREEN_WIDTH-BUTTON_WIDTH) // 2 + BUTTON_WIDTH + 15, SCREEN_HEIGHT-BUTTON_HEIGHT-25)
-MODE_BUTTON_POS = ((SCREEN_WIDTH-BUTTON_WIDTH) // 2 + 2 * BUTTON_WIDTH + 50, SCREEN_HEIGHT-BUTTON_HEIGHT-25)
+RENDER_MODE_BUTTON_POS = ((SCREEN_WIDTH-BUTTON_WIDTH) // 2 + 2 * BUTTON_WIDTH + 50, SCREEN_HEIGHT-BUTTON_HEIGHT-25)
+COLLAPSE_MODE_BUTTON_POS = ((SCREEN_WIDTH-BUTTON_WIDTH) // 2 + 2 * BUTTON_WIDTH + 15, SCREEN_HEIGHT-BUTTON_HEIGHT-25)
 
 LEFT = 1
 
@@ -283,15 +284,15 @@ class SoundTile(InterfaceRender):
     
     # render includes sound playing? it's weird, but it works well
     def render(self, screen, *args, **kwargs):
-        x, y, size, mode = args
+        x, y, size, render_mode = args
 
-        if   mode == 0:  # waveform
+        if   render_mode == 0:  # waveform
             image = pygame.transform.scale(self.__wave_img, size)
-        elif mode == 1:  # frequency
+        elif render_mode == 1:  # frequency
             image = pygame.transform.scale(self.__freq_img, size)
-        elif mode == 2:  # spectrogram
+        elif render_mode == 2:  # spectrogram
             image = pygame.transform.scale(self.__spectrogram_img, size)
-        elif mode == 3:  # mel_spectrogram
+        elif render_mode == 3:  # mel_spectrogram
             image = pygame.transform.scale(self.__mel_img, size)
 
         rect = image.get_rect(x=x, y=y)
@@ -361,14 +362,14 @@ class SoundBlock(InterfaceRender):
     def y(self):
         return self.__y
 
-    def render(self, screen, mode):
+    def render(self, screen, render_mode):
         if len(self.__tiles) == 1:
             x = self.__x
             y = SCREEN_HEIGHT - BLOCK_HEIGHT - 200
             size = BLOCK_WIDTH, BLOCK_HEIGHT
 
             tile = self.__tiles[0]
-            tile.render(screen, x, y, size, mode, is_single=True)
+            tile.render(screen, x, y, size, render_mode, is_single=True)
         
         else:
             for tile in self.__tiles:
@@ -376,7 +377,7 @@ class SoundBlock(InterfaceRender):
                 y = self.__y + tile.idx // TILES_COUNT_IN_ROW * (TILE_HEIGHT + TILE_GAP)
                 size = TILE_WIDTH, TILE_HEIGHT
 
-                tile.render(screen, x, y, size, mode, is_single=False)
+                tile.render(screen, x, y, size, render_mode, is_single=False)
 
     def remove(self, tile):
         self.__tiles.remove(tile)
@@ -421,23 +422,26 @@ class Rules:
                 for neighbor in tileset:
                     if self.__is_similar(tile, neighbor, direction):
                         self.__rules[tile.idx][direction].append(neighbor.idx)
-    
-# ---- HERE ----
-    # ---- HERE ----
-    # ---- HERE ----
-    # ---- HERE ----
-    # ---- HERE ----
-    # ---- HERE ----
-# ---- HERE ----
-
-# START AND FINISH WITH THE SAME NOTE (TONIC) 
-
-    def __is_similar(self, tile, neighbor, direction, k=0.8):
-        # a = min([2**(i/12) / (tile.dominant_frequency() / neighbor.dominant_frequency()) for i in [-12, -9, -8, -7, -5, -4, -3, 0, 3, 4, 5, 7, 8, 9, 12]]) <= 2 ** (1/24)
         
+        self.__major_rules = {}
+        self.__minor_rules = {}
+
+    def __is_similar(self, tile, neighbor, direction, k=0.25):
         n = 12 * log2(tile.dominant_frequency() / neighbor.dominant_frequency())
         for step in [-12, -9, -8, -7, -5, -4, -3, 0, 3, 4, 5, 7, 8, 9, 12]:
-            if abs(n - step) <= 0.25:
+            if abs(n - step) <= k:
+                return True
+
+    def __is_major(self, tile, key, direction, k=0.25):   # MAJOR
+        n = 12 * log2(tile.dominant_frequency() / key.dominant_frequency())
+        for step in [-12, -10, -8, -7, -5, -3, -1, 0, 2, 4, 5, 7, 9, 11, 12]:
+            if abs(n - step) <= k:
+                return True
+    
+    def __is_minor(self, tile, key, direction, k=0.25):   # MINOR
+        n = 12 * log2(tile.dominant_frequency() / key.dominant_frequency())
+        for step in [-12, -10, -9, -7, -5, -4, -2, -0, 2, 3, 5, 7, 8, 10, 12]:
+            if abs(n - step) <= k:
                 return True
 
     def is_possible_neighbor(self, tile, neighbor, direction):
@@ -608,11 +612,20 @@ class Wave(InterfaceRender):
         for i in range(self.__length):
             tileset = []
             for idx in range(TILES_COUNT):
-                filepath    = playlist.audio_files[idx]
+                filepath = playlist.audio_files[idx]
                 samples, sr = playlist.audio_files_data[idx]
-                image       = playlist.tile_images[idx]
+                ft = playlist.fts[idx]
+                magnitude = playlist.magnitudes[idx]
+                stft = playlist.stfts[idx]
+                spectrogram = playlist.spectrograms[idx]
+                mel_spectrogram = playlist.mel_spectrograms[idx]
                 
-                tile = SoundTile(filepath, samples, sr, image)
+                wave_img = playlist.wave_imgs[idx]
+                freq_img = playlist.freq_imgs[idx]
+                spectrogram_img = playlist.spectrogram_imgs[idx]
+                mel_img = playlist.mel_imgs[idx]
+                
+                tile = SoundTile(filepath, samples, sr, ft, magnitude, stft, spectrogram, mel_spectrogram, wave_img, freq_img, spectrogram_img, mel_img)
                 tileset.append(tile)
 
             x = i * (BLOCK_WIDTH + BLOCK_GAP) + SIDE_PAD
@@ -620,11 +633,12 @@ class Wave(InterfaceRender):
 
             soundblock = SoundBlock(tileset, x, y)
             self.__coeffs.append(soundblock)
-
+            self.__stack = []
 
     def render(self, screen, *args, **kwargs):
+        # print(self.__stack)
         for soundblock in self.__coeffs:
-            soundblock.render(screen, kwargs['mode'])
+            soundblock.render(screen, kwargs['render_mode'])
 
     @property
     def length(self):
@@ -649,12 +663,14 @@ class MusicGenerator:
         self.__sample_rate = SAMPLE_RATE
         self.__wave_function = Wave(self.__playlist, OUTPUT_LENGTH)
 
-        self.__mode = 0
+        self.__collapse_button      = Button('Collapse', COLLAPSE_BUTTON_POS)
+        self.__renovate_button      = Button('Renovate', RENOVATE_BUTTON_POS)
+        self.__save_button          = Button('Save', SAVE_BUTTON_POS)
+        self.__render_mode_button   = Button('Render mode', RENDER_MODE_BUTTON_POS)
+        self.__collapse_mode_button = Button('Collapse mode', COLLAPSE_MODE_BUTTON_POS)
 
-        self.__collapse_button = Button('Collapse', COLLAPSE_BUTTON_POS)
-        self.__renovate_button = Button('Renovate', RENOVATE_BUTTON_POS)
-        self.__save_button     = Button('Save', SAVE_BUTTON_POS)
-        self.__mode_button     = Button('Change mode', MODE_BUTTON_POS)
+        self.__collapse_mode = 0
+        self.__render_mode = 0
 
         self.__start = False
         self.__runner = True
@@ -692,14 +708,13 @@ class MusicGenerator:
 
     def save_audio(self, filename):
         audio = self.__audio()
-        print(type(audio[0]))
+        # print(type(audio[0]))
 
         with wave.open(f'music_synthesis/results/{filename}.wav', mode='wb') as wav_file:
             wav_file.setnchannels(1)
             wav_file.setsampwidth(4)
             wav_file.setframerate(self.__sample_rate)
             wav_file.writeframes(bytes(audio))
-
 
     def __process_input(self):
         for event in pygame.event.get():
@@ -731,22 +746,17 @@ class MusicGenerator:
                 self.start_time = time.time()
                 self.__collapse_gen = self.__wave_function.collapse()
                 self.__start = True
-                print('collapse btn')
 
             elif self.__renovate_button.check_click():
-                # self.__wave_function.renovate(self.__playlist)
+                self.__wave_function.renovate(self.__playlist)
                 self.__start = False
-                print('renovate btn')
 
-            elif self.__mode_button.check_click():
-                self.__mode += 1
-                if self.__mode == 4:
-                    self.__mode = 0
-                print('mode btn')
+            elif self.__render_mode_button.check_click():
+                self.__render_mode += 1
+                if self.__render_mode == 4:
+                    self.__render_mode = 0
             elif self.__wave_function.is_collapsed() and self.__save_button.check_click():
                 self.save_audio(input('filename: '))
-                print('save btn')
-                pass
 
     def __update(self):
         if self.__start:
@@ -759,12 +769,12 @@ class MusicGenerator:
     def __render(self):
         self.__screen.fill((128, 128, 128))
 
-        self.__wave_function.render(self.__screen, mode=self.__mode)
+        self.__wave_function.render(self.__screen, render_mode=self.__render_mode)
         
         self.__collapse_button.render(self.__screen)
         self.__renovate_button.render(self.__screen)
         self.__save_button.render(self.__screen)
-        self.__mode_button.render(self.__screen)
+        self.__render_mode_button.render(self.__screen)
         
         pygame.display.flip()
 
