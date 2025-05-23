@@ -31,7 +31,7 @@ class Playlist:
             magnitude = np.abs(ft)[:len(y) // 2 + 1]
             stft = librosa.stft(y, n_fft=FRAME_SIZE, hop_length=HOP_SIZE)
             spectrogram = librosa.power_to_db(np.abs(stft) ** 2)
-            mel_spectrogram = librosa.power_to_db(librosa.feature.melspectrogram(y=y, sr=sr, n_fft=FRAME_SIZE, hop_length=HOP_SIZE, n_mels=FILTERS_COUNT))
+            mel_spectrogram = librosa.amplitude_to_db(librosa.feature.melspectrogram(y=y, sr=sr, n_fft=FRAME_SIZE, hop_length=HOP_SIZE, n_mels=FILTERS_COUNT), ref=np.max)
             
             self.__fts.append(ft)
             self.__magnitudes.append(magnitude)
