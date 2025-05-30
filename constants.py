@@ -2,7 +2,7 @@ import pygame
 from math import sqrt, ceil
 
 
-PATH = 'music_synthesis/audio/piano/*.wav'
+PATH = 'music_synthesis/audio/piano0.3/*.wav'
 SAMPLE_RATE = 22050
 
 SCREEN_WIDTH = 1500
