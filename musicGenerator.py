@@ -21,7 +21,8 @@ class MusicGenerator:
 
         self.__playlist = Playlist(PATH)
         self.__sample_rate = SAMPLE_RATE
-        self.__wave_function = Wave(self.__playlist, OUTPUT_LENGTH)
+        length = int(input('length: '))
+        self.__wave_function = Wave(self.__playlist, length)
 
         self.__collapse_button      = Button('Collapse', COLLAPSE_BUTTON_POS)
         self.__renovate_button      = Button('Renovate', RENOVATE_BUTTON_POS)

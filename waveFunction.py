@@ -136,6 +136,7 @@ class Wave(InterfaceRender):
             yield
     
     def renovate(self, playlist):
+        self.__length = int(input('length: '))
         self.__coeffs = []
         for i in range(self.__length):
             tileset = []

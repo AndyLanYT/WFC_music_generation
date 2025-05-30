@@ -2,7 +2,7 @@ import pygame
 from math import sqrt, ceil
 
 
-PATH = 'music_synthesis/audio/*.wav'
+PATH = 'music_synthesis/audio/piano/*.wav'
 SAMPLE_RATE = 22050
 
 SCREEN_WIDTH = 1500
@@ -16,8 +16,8 @@ BOTTOM_MARGIN = TOP_MARGIN
 MAX_FIELD_WIDTH = SCREEN_WIDTH - LEFT_MARGIN - RIGHT_MARGIN
 MAX_FIELD_HEIGHT = 500
 
-OUTPUT_LENGTH = 6
-TILES_COUNT = 12
+OUTPUT_LENGTH = 15
+TILES_COUNT = 24
 
 TILE_GAP = 1
 BLOCK_GAP = min(max(70 // OUTPUT_LENGTH, 1), 10)

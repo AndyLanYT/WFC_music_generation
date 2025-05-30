@@ -5,7 +5,7 @@ import numpy as np
 from glob import glob
 
 
-PATH = 'music_synthesis/results/*.wav'
+PATH = 'music_synthesis/results/vis/*.wav'
 SAMPLE_RATE = 22050
 
 audio_files = glob(PATH)
@@ -33,12 +33,12 @@ def plot_fft(ax, y, sr):
     ax.set_ylabel("Magnitude")
 
 # 3. Spectrogram
-def plot_spectrogram(ax, y, sr):
+def plot_spectrogram(y, sr):
     S = librosa.stft(y)
     S_db = librosa.amplitude_to_db(np.abs(S), ref=np.max)
-    img = librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='log', ax=ax)
-    ax.set_title("Spectrogram (dB)")
-    plt.colorbar(img, ax=ax, format="%+2.0f dB")
+    img = librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='log')
+    # ax.set_title("Spectrogram (dB)")
+    plt.colorbar(img, format="%+2.0f dB")
 
 # 4. Mel Spectrogram
 def plot_mel_spectrogram(ax, y, sr):
@@ -51,11 +51,11 @@ def plot_mel_spectrogram(ax, y, sr):
 
 for y, sr in audio_files_data:
     # Create 4 vertically stacked plots
-    fig, axs = plt.subplots(3, 1, figsize=(12, 8))
+    # fig, axs = plt.subplots(2, 1, figsize=(12, 8))
     # plot_waveform(axs[0], y, sr)
-    plot_fft(axs[0], y, sr)
-    plot_spectrogram(axs[1], y, sr)
-    plot_mel_spectrogram(axs[2], y, sr)
+    # plot_fft(axs[0], y, sr)
+    plot_spectrogram(y, sr)
+    # plot_mel_spectrogram(axs[2], y, sr)
 
     plt.tight_layout()
     plt.show()
